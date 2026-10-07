@@ -1,146 +1,306 @@
+<div align="center">
+
 # Simpul — Hospital Data Hub
 
-> Menyatukan data dari semua sistem rumah sakit (SIMRS, Lab, Farmasi, Billing) menjadi **satu data pasien yang bersih**, tanpa mengganti sistem yang sudah ada.
+**Satu pasien, satu riwayat. Dari semua sistem rumah sakit.**
+
+Simpul mengumpulkan catatan pasien yang tercecer di pendaftaran, lab, apotek, dan kasir menjadi satu riwayat lengkap, supaya dokter tidak perlu membuka empat aplikasi untuk tahu pasiennya sakit apa.
+
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
+![HL7](https://img.shields.io/badge/HL7_v2-ORU^R01-7a3fb0)
+![Standards](https://img.shields.io/badge/ICD--10_·_LOINC_·_ATC-standar-0b6e79)
+![Data](https://img.shields.io/badge/data-100%25_sintetis-1d7a46)
+
+<img src="docs/screenshots/01-beranda.png" alt="Beranda Simpul: nilai kesehatan data, daftar pekerjaan, dan status 4 sistem rumah sakit" width="100%">
+
+</div>
 
 ---
 
-## 1. Masalah
+## Daftar isi
 
-Rumah sakit di Indonesia rata-rata menjalankan **4–6 sistem dari vendor berbeda** yang tidak saling terhubung:
+- [Masalahnya](#masalahnya)
+- [Apa yang dilakukan Simpul](#apa-yang-dilakukan-simpul)
+- [Tur aplikasi](#tur-aplikasi)
+- [Menjalankan dalam 1 menit](#menjalankan-dalam-1-menit)
+- [Skenario demo 5 menit](#skenario-demo-5-menit)
+- [Cara kerjanya](#cara-kerjanya)
+- [Dirancang untuk pengguna awam](#dirancang-untuk-pengguna-awam)
+- [Playbook implementasi di rumah sakit](#playbook-implementasi-di-rumah-sakit)
+- [Dari demo ke produksi](#dari-demo-ke-produksi)
 
-| Sistem | Isi | Bentuk data yang biasa ditemui |
+---
+
+## Masalahnya
+
+Rumah sakit di Indonesia rata-rata menjalankan **4–6 sistem dari vendor berbeda** yang tidak saling bicara.
+
+| Sistem | Isinya | Cara datanya keluar |
 |---|---|---|
-| SIMRS | Pendaftaran, kunjungan, diagnosis | Database MySQL / SQL Server, tanpa API |
-| LIS (Laboratorium) | Hasil lab | Pesan HL7 v2 dari analyzer |
-| Farmasi | Resep & pemberian obat | Export CSV / Excel harian |
-| Billing | Tagihan & tindakan | Database terpisah |
+| **SIMRS** | Pendaftaran, kunjungan, diagnosis | Database, sering tanpa API |
+| **Laboratorium** | Hasil pemeriksaan | Pesan HL7 v2 dari alat analyzer |
+| **Farmasi** | Resep dan obat | Ekspor CSV / Excel harian |
+| **Kasir** | Tagihan | Database terpisah |
 
 Akibatnya:
-- Satu pasien tercatat **dengan ID berbeda** di tiap sistem (NIK kosong, nama salah ketik, tanggal lahir beda).
-- Kode diagnosis, lab, dan obat **tidak standar** (teks bebas, kode lokal).
-- Manajemen membuat laporan **manual di Excel**, berhari-hari, dan sering tidak cocok antar unit.
-- Proyek digital baru (RME, SATUSEHAT, analitik, riset) **macet di tahap data**.
 
-## 2. Solusi
+- **Satu orang tercatat sebagai beberapa pasien.** "Ny. Siti Aminah" di SIMRS, "AMINAH^SITI S." di lab, dengan tanggal lahir yang hari dan bulannya tertukar.
+- **Setiap bagian punya singkatan sendiri.** "GDS", "Omz 20", "DISP" tidak bisa dibandingkan atau dilaporkan.
+- **Hal penting tidak terlihat.** Apotek memberi metformin, lab mencatat kreatinin tinggi, tapi tidak ada yang melihat keduanya bersamaan.
+- **Proyek digital macet di tahap data.** RME, SATUSEHAT, analitik, dan riset semuanya butuh data yang bersih dulu.
 
-Simpul duduk **di samping** sistem yang sudah ada (tidak menggantikan), lalu:
+## Apa yang dilakukan Simpul
 
-1. **Menarik data** dari setiap sistem lewat konektor yang sesuai (database, HL7, file).
-2. **Mencocokkan identitas pasien** lintas sistem (Master Patient Index).
-3. **Menstandarkan kode** ke ICD-10, LOINC, dan kode obat standar.
-4. **Mengukur kualitas data** per sistem dan per unit, lengkap dengan daftar perbaikan.
-5. **Menyajikan Pasien 360**: satu timeline pasien yang utuh dari semua sistem.
+Simpul **duduk di samping** sistem yang sudah ada. Tidak menggantikan, dan tidak pernah menulis ke sistem asli.
 
-```
-SIMRS (DB) ───── pull ─────┐
-LIS (HL7 v2) ── listener ──┤
-Farmasi (CSV) ── upload ───┼──▶ Staging ──▶ MPI + Mapping Kode ──▶ Data Repository ──▶ Dashboard / Produk lain
-Billing (DB) ─── pull ─────┘                       │
-                                          Laporan Kualitas Data
-```
+| | Kemampuan | Hasilnya untuk RS |
+|---|---|---|
+| 🔌 | **Konektor hanya-baca** ke database, HL7, dan file CSV | Terhubung tanpa minta vendor mengubah apa pun |
+| 🧑‍🤝‍🧑 | **Pencocokan pasien (MPI)** yang bisa dijelaskan | Satu ID untuk satu orang, petugas memutuskan kasus yang meragukan |
+| 🔤 | **Penyamaan kode** ke ICD-10, LOINC, ATC | Data siap dilaporkan dan dibandingkan |
+| 🚨 | **Peringatan klinis lintas sistem** | Temuan yang hanya muncul setelah data disatukan |
+| 📊 | **Kualitas data** per sistem dan per aturan | Daftar perbaikan yang jelas untuk tiap bagian |
+| 🩺 | **Pasien 360** | Riwayat lengkap dalam satu layar |
 
-## 3. Nilai bisnis
+---
 
-| Untuk siapa | Yang didapat |
+## Tur aplikasi
+
+> Semua nama, NIK, nomor HP, dan rumah sakit di screenshot adalah **data sintetis**.
+
+### 1. Beranda: "Apa yang perlu saya kerjakan hari ini?"
+
+<img src="docs/screenshots/01-beranda.png" alt="Beranda" width="100%">
+
+- **Nilai kesehatan data** 0–100 dengan keterangan dalam kata-kata ("Cukup baik").
+- **Yang perlu dikerjakan**: setiap baris punya angka, penjelasan, dan satu tombol aksi.
+- **Status 4 sistem**: ikon + kata + warna, diperbarui otomatis.
+
+### 2. Cari Pasien
+
+<img src="docs/screenshots/02-cari-pasien.png" alt="Cari pasien" width="100%">
+
+Cari dengan nama, NIK, nomor rekam medis, atau ID Simpul. Setiap pasien menunjukkan **dari sistem mana saja datanya berasal**, dan diberi tanda bila mungkin punya catatan ganda.
+
+### 3. Pasien 360: satu riwayat dari empat sistem
+
+<img src="docs/screenshots/03-pasien-360.png" alt="Pasien 360 dengan peringatan klinis" width="100%">
+
+- **Banner identitas** dengan dua penanda (nama + tanggal lahir/NIK), sesuai praktik keselamatan pasien.
+- **Peringatan klinis** langsung di atas, lengkap dengan buktinya.
+- **Ringkasan**: diagnosis dengan kode ICD-10, hasil lab terakhir dengan tanda tinggi/rendah, obat 3 bulan terakhir.
+- **Riwayat lengkap** per tanggal. Setiap baris menunjukkan sistem asal, kode lokal, dan kode standarnya.
+- **Catatan di tiap sistem**: nomor dan penulisan nama yang berbeda-beda, serta cara terhubungnya (otomatis atau oleh petugas).
+
+### 4. Cek Pasien Ganda: manusia yang memutuskan
+
+<img src="docs/screenshots/04-cek-pasien-ganda.png" alt="Cek pasien ganda" width="100%">
+
+Dua catatan dibandingkan berdampingan. Kolom **Hasil** menunjukkan per data: *Sama*, *Mirip*, *Hari & bulan tertukar*, *Beda*, atau *Tidak ada data*. Dua tombol besar: **Ya, orang yang sama** atau **Bukan, orang berbeda**. Setiap keputusan bisa dibatalkan.
+
+### 5. Peringatan Klinis: yang hanya terlihat setelah data disatukan
+
+<img src="docs/screenshots/05-peringatan-klinis.png" alt="Peringatan klinis lintas sistem" width="100%">
+
+> *"Apotek dan lab tidak saling tahu. Simpul yang mempertemukan."*
+
+- Setiap peringatan menunjukkan **bukti dari tiap sistem**, misalnya *[Farmasi] Metformin* **+** *[Lab] Kreatinin 1,6 ↑*.
+- **Tandai sudah ditindaklanjuti**, dengan catatan. Siapa dan kapan tersimpan di database.
+- Peringatan **selesai otomatis** bila kondisinya tidak berlaku lagi.
+- Aturan bisa dinyalakan atau dimatikan sesuai kebijakan komite medis.
+
+| Aturan | Data dari |
 |---|---|
-| Direksi RS | Satu angka yang sama untuk semua unit; laporan dari hari menjadi menit |
-| Tim Rekam Medis | Daftar duplikat pasien & data tidak lengkap yang bisa langsung diperbaiki |
-| Tim IT RS | Tidak perlu mengganti vendor; integrasi tanpa mengubah sistem lama |
-| Vendor platform (mis. Synyi) | Data bersih siap pakai; waktu onboarding RS baru jauh lebih cepat |
+| Metformin dengan fungsi ginjal menurun | Farmasi + Lab |
+| Trombosit sangat rendah tanpa tindak lanjut | Lab + SIMRS |
+| Diabetes belum terkontrol | SIMRS + Lab |
+| Kolesterol tinggi tanpa obat | Lab + Farmasi |
 
-**Model jual:** biaya implementasi per RS + langganan bulanan per konektor aktif.
+### 6. Samakan Kode
 
-## 4. Fitur demo
+<img src="docs/screenshots/06-samakan-kode.png" alt="Samakan kode lokal ke standar" width="100%">
 
-Nama menu sengaja memakai bahasa sehari-hari, bukan istilah teknis.
+Singkatan RS ("Omz 20", "DISLIP", "TG") ditampilkan bersama **saran kode standar** dan berapa data yang memakainya. Cukup tekan **Setujui** sekali, dan langsung berlaku untuk semua data lama maupun baru. Arahkan kursor ke kode untuk penjelasan istilah (misalnya *"LOINC: kode standar internasional untuk jenis pemeriksaan laboratorium"*).
 
-| Menu | Istilah teknis | Yang ditunjukkan |
-|---|---|---|
-| **Beranda** | Overview | Nilai kesehatan data, daftar "yang perlu dikerjakan", status 4 sistem, aktivitas terbaru |
-| **Cari Pasien** | Pasien 360 | Cari nama/NIK/No. RM → satu riwayat lengkap dari SIMRS, Lab, Farmasi, dan Kasir |
-| **Peringatan Klinis** | Cross-system clinical alerts | Temuan yang hanya terlihat setelah data disatukan, misalnya metformin (Farmasi) + kreatinin tinggi (Lab). Lengkap dengan bukti dari tiap sistem, tombol tindak lanjut, dan aturan yang bisa dinyalakan/dimatikan |
-| **Cek Pasien Ganda** | Antrian MPI | Dua catatan dibandingkan berdampingan (sama/mirip/beda) → "Ya, orang yang sama" atau "Bukan" |
-| **Samakan Kode** | Terminology mapping | Singkatan RS ("Omz 20", "GDS", "DISP") → saran ICD-10 / LOINC / ATC → Setujui |
-| **Kualitas Data** | Data quality | Nilai per sistem, daftar masalah beserta cara memperbaikinya, unduh daftar kerja (CSV/Excel) |
-| **Sumber Data** | Connectors | Status tiap sistem, jadwal, riwayat sinkron, unggah file farmasi, **panel demo** |
+### 7. Kualitas Data
 
-Prinsip desain untuk pengguna awam:
-- Setiap halaman punya kotak **Cara pakai** 3 langkah (bisa disembunyikan).
-- Status selalu ditulis dengan **ikon + kata + warna** (bukan warna saja).
-- Tombol memakai kata kerja yang jelas ("Ya, orang yang sama", "Setujui", "Ambil data sekarang").
-- Setiap keputusan penting **bisa dibatalkan** (tombol "Batalkan" pada notifikasi).
-- Banner identitas pasien menampilkan 2 penanda (nama + tanggal lahir/NIK) sesuai praktik keselamatan pasien.
-- NIK dan nomor HP selalu disamarkan.
+<img src="docs/screenshots/07-kualitas-data.png" alt="Kualitas data" width="100%">
 
-Semua data demo **sintetis** dan sengaja dibuat "kotor" agar mirip kondisi RS sungguhan.
+Nilai per sistem, kartu per masalah (apa, kenapa penting, cara memperbaiki), dan daftar pasien yang terdampak. Tombol **Unduh daftar perbaikan** menghasilkan file yang bisa dibuka di Excel dan dibagikan ke bagian terkait.
 
-## 5. Teknologi
+### 8. Sumber Data + Panel Demo
 
-| Lapisan | Versi demo (di repo ini) | Versi produksi |
-|---|---|---|
-| Backend | Python + FastAPI | sama |
-| Database | SQLite (file `backend/data/simpul.db`) | PostgreSQL |
-| HL7 | Parser HL7 v2 ringan (`app/hl7.py`), baca file dari folder inbox | MLLP listener langsung dari alat lab |
-| Konektor database | SQLite mode hanya-baca + watermark `updated_at` | Read-replica MySQL/SQL Server/Postgres |
-| Pencocokan pasien | Aturan berbobot (`difflib`), bisa dijelaskan | sama, bisa ditambah `rapidfuzz` |
-| Penjadwal | Loop asyncio di dalam backend | APScheduler / cron |
-| Frontend | React + Vite + TypeScript, CSS biasa | sama |
+<img src="docs/screenshots/08-sumber-data.png" alt="Sumber data dan panel demo" width="100%">
 
-## 6. Menjalankan demo
+Status, jadwal, dan riwayat pengambilan data tiap sistem. Farmasi bisa **mengunggah CSV**. **Panel demo** bisa meniru kejadian di rumah sakit:
+- alat lab mengirim hasil baru setiap 40 detik,
+- memutus koneksi salah satu sistem,
+- mengulang data dari awal.
+
+---
+
+## Menjalankan dalam 1 menit
 
 Butuh **Python 3.11+** dan **Node.js 18+**.
 
-**Cara paling cepat (Windows):** klik dua kali `start-demo.bat`, lalu buka **http://localhost:8000**.
+**Windows:** klik dua kali **`start-demo.bat`**. Browser akan terbuka di http://localhost:8000.
 
-Atau manual:
+**Manual (semua OS):**
 
 ```bash
-# 1. Backend
+# Backend
 cd backend
 python -m venv .venv
-.venv\Scriptsctivate          # macOS/Linux: source .venv/bin/activate
+.venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Frontend (build sekali, nanti disajikan oleh backend)
+# Frontend (build sekali, disajikan oleh backend)
 cd ../frontend
 npm install
 npm run build
 
-# 3. Jalankan
+# Jalankan
 cd ../backend
 python -m uvicorn app.main:app --port 8000
 ```
 
-- Dashboard: **http://localhost:8000**
-- Dokumentasi API: http://localhost:8000/docs
-- Saat pertama dijalankan, data contoh dibuat otomatis. Untuk mengulang dari awal: menu **Sumber Data → Ulang data demo dari awal**, atau `python -m app.seed`.
-- Untuk mengembangkan frontend: `npm run dev` di folder `frontend` lalu buka http://localhost:5173 (API diteruskan ke port 8000).
+| Alamat | Isi |
+|---|---|
+| http://localhost:8000 | Aplikasi |
+| http://localhost:8000/docs | Dokumentasi API (Swagger) |
 
-Alat lab tiruan mengirim pesan HL7 baru setiap 40 detik, sehingga dashboard terlihat **hidup** saat demo.
+- Data contoh dibuat otomatis saat pertama kali dijalankan.
+- Untuk mengulang dari awal: **Sumber Data → Ulang data demo dari awal**, atau jalankan `python -m app.seed`.
+- Untuk mengembangkan frontend: `npm run dev` di folder `frontend`, lalu buka http://localhost:5173.
 
-## 7. Skenario demo 5 menit
+---
 
-1. **Beranda** — "RS ini punya 4 sistem dari vendor berbeda. Semuanya terhubung tanpa mengubah sistem lama. 161 catatan pasien disatukan menjadi 52 pasien."
-2. **Cari Pasien → Siti Aminah** — riwayat dari SIMRS, Farmasi, dan Kasir sudah menyatu. Tunjukkan: *hasil lab kosong*, padahal ada tagihan lab. Ada peringatan kuning "mungkin punya catatan lain".
-3. **Cek Pasien Ganda** — catatan Lab "SITI S. AMINAH" dengan **hari dan bulan lahir tertukar** (12-03 vs 03-12). Sistem tidak menggabung otomatis karena ragu; petugas yang memutuskan → **Ya, orang yang sama**.
-4. **Kembali ke Siti Aminah** — sekarang terhubung dengan 4 sistem, dan langsung muncul **2 peringatan klinis**: *metformin + kreatinin tinggi* dan *diabetes belum terkontrol*. "Apotek dan lab tidak saling tahu. Simpul yang mempertemukan." Tekan **Tandai sudah ditindaklanjuti** dan isi catatan.
-5. **Muhammad Rizki** (dua orang, nama dan tanggal lahir sama, alamat & HP beda) → **Bukan, orang berbeda**. "Sistem tidak sembarangan menggabung."
-6. **Samakan Kode** — setujui "Simva 20" → ATC C10AA01 Simvastatin. Peringatan "kolesterol tinggi tanpa obat" untuk pasien yang ternyata sudah minum simvastatin **selesai otomatis**. "Kode yang tidak standar membuat alarm palsu."
-7. **Sumber Data → Panel demo** — **Putus Kasir & Tagihan**: status jadi merah di semua halaman, pesan jelas untuk tim IT. Sambungkan lagi.
-8. **Penutup** — "Di atas data bersih ini, produk apa pun bisa langsung jalan: analitik, riset klinis, SATUSEHAT."
+## Skenario demo 5 menit
 
-## 8. Rencana implementasi di RS (playbook FDE)
+| # | Halaman | Lakukan | Yang dikatakan |
+|---|---|---|---|
+| 1 | **Beranda** | Tunjukkan 4 sistem hijau dan angka pasien | "Empat sistem dari vendor berbeda, terhubung tanpa mengubah sistem lama. 161 catatan disatukan menjadi 52 pasien." |
+| 2 | **Cari Pasien → Siti Aminah** | Tunjukkan bagian *Hasil lab terakhir* yang kosong | "Ada tagihan lab, tapi hasil labnya tidak ada. Datanya tercecer." |
+| 3 | **Cek Pasien Ganda** | Buka pasangan Siti. Lab mencatat tanggal lahirnya dengan hari dan bulan tertukar. Tekan **Ya, orang yang sama** | "Sistem tidak menggabung sembarangan. Kalau ragu, petugas yang memutuskan." |
+| 4 | **Siti Aminah** lagi | Sekarang 4 sistem, dan muncul **2 peringatan klinis** | "Apotek memberi metformin, lab mencatat kreatinin tinggi. Tidak ada yang tahu, sampai datanya disatukan." |
+| 5 | **Peringatan Klinis** | Tekan **Tandai sudah ditindaklanjuti**, isi catatan | "Tercatat siapa dan kapan. Bisa diaudit." |
+| 6 | **Cek Pasien Ganda → Muhammad Rizki** | Nama dan tanggal lahir sama, alamat dan HP beda. Tekan **Bukan, orang berbeda** | "Nama sama belum tentu orang yang sama." |
+| 7 | **Samakan Kode** | Setujui *Simva 20 → Simvastatin* | "3 peringatan kolesterol selesai otomatis, karena pasiennya ternyata sudah minum statin. Kode yang tidak standar membuat alarm palsu." |
+| 8 | **Sumber Data → Panel demo** | Tekan **Putus Kasir & Tagihan** | "Status langsung merah di semua halaman, dengan pesan yang jelas untuk tim IT. Data lama tetap aman." |
+
+Penutup: *"Di atas data yang bersih ini, produk apa pun bisa langsung jalan: analitik, riset klinis, pelaporan SATUSEHAT."*
+
+---
+
+## Cara kerjanya
+
+```mermaid
+flowchart LR
+    subgraph RS["Sistem rumah sakit (tidak diubah)"]
+        A[(SIMRS<br/>database)]
+        B[/Alat lab<br/>HL7 v2/]
+        C[/Farmasi<br/>CSV harian/]
+        D[(Kasir<br/>database)]
+    end
+
+    subgraph SIMPUL["Simpul"]
+        S[Staging<br/>data asli + hash]
+        N[Normalisasi<br/>nama · NIK · tanggal · HP]
+        M[Pencocokan pasien<br/>MPI]
+        T[Penyamaan kode<br/>ICD-10 · LOINC · ATC]
+        Q[Kualitas data]
+        K[Peringatan klinis<br/>lintas sistem]
+        R[(Data pasien<br/>terpadu)]
+    end
+
+    A -- baca saja --> S
+    B -- baca saja --> S
+    C -- baca saja --> S
+    D -- baca saja --> S
+    S --> N --> M --> R
+    S --> T --> R
+    R --> Q
+    R --> K
+    R --> UI[Dashboard<br/>untuk petugas RS]
+```
+
+**Pencocokan pasien yang bisa dijelaskan**, bukan kotak hitam:
+
+| Sinyal | Bobot | Catatan |
+|---|---|---|
+| NIK valid | Penentu | Sama = pasti satu orang; beda = pasti orang berbeda |
+| Tanggal lahir | 0.35 | Hari & bulan tertukar diberi nilai sebagian |
+| Nama | 0.30 | Sapaan/gelar (Tn., Ny., Hj., dr.) dibuang |
+| Nomor HP | 0.15 | +62 / 62 / 08 disamakan |
+| Jenis kelamin | 0.10 | |
+| Alamat | 0.10 | Jaktim → Jakarta Timur, dan seterusnya |
+
+| Skor | Tindakan |
+|---|---|
+| ≥ 90% | Digabung otomatis, **hanya jika** tanggal lahir sama persis dan nama hampir identik |
+| 70–89% | Masuk antrian **Cek Pasien Ganda** |
+| < 70% | Dianggap orang berbeda |
+
+Detail lengkap: [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md).
+
+---
+
+## Dirancang untuk pengguna awam
+
+Petugas rumah sakit bukan orang IT. Setiap keputusan desain mengikuti itu:
+
+| Prinsip | Penerapan |
+|---|---|
+| Bahasa sehari-hari | "Cek Pasien Ganda", bukan "MPI Queue". "Samakan Kode", bukan "Terminology Mapping" |
+| Setiap halaman menjelaskan dirinya | Kotak **Cara pakai** 3 langkah, bisa disembunyikan |
+| Status tidak hanya warna | Selalu ikon + kata + warna, aman untuk buta warna |
+| Tombol menyebut hasilnya | "Ya, orang yang sama", "Ambil data sekarang", "Setujui" |
+| Tidak ada keputusan yang permanen | Gabung, tolak, setujui kode, tindak lanjut: semuanya bisa dibatalkan |
+| Keselamatan pasien | Banner identitas dengan dua penanda; NIK dan HP selalu disamarkan |
+| Istilah teknis dijelaskan | Tooltip pada ICD-10, LOINC, ATC, ID Simpul |
+| Pesan error yang membantu | Menjelaskan apa yang terjadi dan apa yang harus dilakukan |
+
+---
+
+## Playbook implementasi di rumah sakit
 
 | Minggu | Kegiatan | Hasil |
 |---|---|---|
-| 1 | Discovery: petakan sistem, temui vendor SIMRS, urus akses read-only | Peta sistem & akses |
+| 1 | Discovery: petakan sistem, temui vendor SIMRS, urus akses hanya-baca | Peta sistem dan akses |
 | 2 | Pasang konektor, tarik data historis | Laporan kualitas data pertama |
-| 3 | Tuning MPI & mapping kode bersama tim rekam medis | Data pasien terpadu tervalidasi |
-| 4 | Go-live sinkron otomatis, pelatihan, serah terima | Sistem berjalan mandiri |
+| 3 | Tuning pencocokan pasien dan kamus kode bersama tim rekam medis | Data pasien terpadu yang tervalidasi |
+| 4 | Sinkron otomatis berjalan, aturan peringatan disepakati komite medis, pelatihan | Sistem berjalan mandiri |
 
-## 9. Dokumen terkait
+## Dari demo ke produksi
 
-- [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) — struktur folder, modul, dan model data
-- [PLAYGROUND_RULES.md](PLAYGROUND_RULES.md) — aturan kerja di repo ini
-#   s i m p u l - h o s p i t a l - d a t a - h u b  
- 
+| Bagian | Di repo ini | Di rumah sakit |
+|---|---|---|
+| Database Simpul | SQLite | PostgreSQL |
+| SIMRS / Kasir | Database tiruan, dibuka mode hanya-baca | Read-replica database vendor, akun hanya-baca |
+| Laboratorium | File `.hl7` di folder inbox | MLLP listener langsung dari analyzer |
+| Farmasi | Folder CSV + unggah | Folder bersama / SFTP |
+| Pengguna | Satu peran | SSO RS, peran (rekam medis, IT, direksi), log audit |
+| Peringatan klinis | 4 contoh aturan | Aturan yang ditetapkan komite medis |
+| Deploy | `start-demo.bat` | Docker di server RS (on-premise) |
+
+---
+
+## Struktur project
+
+```
+backend/   FastAPI · konektor · MPI · penyamaan kode · kualitas data · peringatan klinis · simulator RS
+frontend/  React + TypeScript · 7 halaman · tanpa library UI
+docs/      screenshot
+```
+
+| Dokumen | Isi |
+|---|---|
+| [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) | Folder, alur data, model data, logika MPI, aturan, endpoint API |
+| [PLAYGROUND_RULES.md](PLAYGROUND_RULES.md) | Aturan kerja di repo: data pasien, sistem RS, konvensi kode |
+
+---
+
+> **Catatan.** Semua data di repo ini adalah **data sintetis** yang dibuat oleh `backend/app/seed.py`. Nama, NIK, nomor HP, dan rumah sakit (*RS Sehat Sentosa*) adalah fiktif. Aturan peringatan klinis adalah **contoh untuk demonstrasi**, bukan pengganti penilaian dokter.
