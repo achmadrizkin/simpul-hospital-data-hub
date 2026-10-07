@@ -9,7 +9,7 @@ if not exist backend\.venv (
 backend\.venv\Scripts\python -m pip install -q -r backend\requirements.txt || goto :error
 
 if not exist frontend\dist\index.html (
-    echo [Simpul] Menyiapkan tampilan (sekali saja)...
+    echo [Simpul] Menyiapkan tampilan ^(sekali saja^)...
     pushd frontend
     call npm install --no-audit --no-fund || goto :error
     call npm run build || goto :error
@@ -23,6 +23,9 @@ echo.
 start "" http://localhost:8000
 cd backend
 .venv\Scripts\python -m uvicorn app.main:app --port 8000
+echo.
+echo [Simpul] Server berhenti.
+pause
 goto :eof
 
 :error
